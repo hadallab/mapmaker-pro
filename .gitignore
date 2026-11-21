@@ -1,0 +1,11 @@
+node_modules/
+dist/
+# Deeeep.io game art: not ours to license, kept out of the repository (see README)
+assets/
+tests/artifacts/
+tests/*-report.json
+*.bak*
+.DS_Store
+Thumbs.db
+# Turkish developer notes (local paths and private setup details)
+README.tr.md

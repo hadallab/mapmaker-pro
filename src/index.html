@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Mapmaker Pro</title>
+  <link rel="stylesheet" href="styles/app.css">
+</head>
+<body>
+  <div id="app">
+    <header id="titlebar">
+      <div class="brand"><img class="mark" src="../build/icon.svg" alt=""><span>Mapmaker Pro</span></div>
+      <nav id="menubar"></nav>
+      <div id="doc-title"></div>
+    </header>
+    <div id="controlbar"></div>
+    <main id="workspace">
+      <aside id="toolbar"></aside>
+      <section id="stage">
+        <div id="ruler-corner"></div>
+        <canvas id="ruler-h"></canvas>
+        <canvas id="ruler-v"></canvas>
+        <div id="viewport">
+          <canvas id="scene"></canvas>
+          <div id="hud"></div>
+          <canvas id="minimap"></canvas>
+        </div>
+      </section>
+      <aside id="dock">
+        <div class="dock-pane" id="dock-top"></div>
+        <div class="splitter" id="dock-splitter"></div>
+        <div class="dock-pane" id="dock-bottom"></div>
+      </aside>
+    </main>
+    <footer id="statusbar"></footer>
+  </div>
+  <div id="menu-root"></div>
+  <div id="modal-root"></div>
+  <div id="toast-root"></div>
+  <script src="vendor/clipper.js"></script>
+  <script type="module" src="ui/app.js"></script>
+</body>
+</html>

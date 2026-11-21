@@ -1,0 +1,114 @@
+{
+  "name": "mapmaker-pro",
+  "productName": "Mapmaker Pro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone map editor for Deeeep.io with a Mapmaker-compatible engine",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "preview": "node tools/serve.cjs",
+    "test": "node --test tests/engine.test.mjs",
+    "test:native": "node tests/native-roundtrip.cjs",
+    "test:visual": "node tests/visual-parity.cjs",
+    "test:electron": "node tests/electron-smoke.cjs",
+    "build:catalog": "node tools/build-catalog.cjs",
+    "build:icon": "node tools/build-icon.cjs",
+    "test:bridge": "node tests/mapmaker-bridge.cjs",
+    "dist": "node tools/build-installer.cjs",
+    "test:features": "node tests/features.cjs",
+    "test:update": "node tests/update.cjs"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "^25.1.8",
+    "rcedit": "^4.0.1"
+  },
+  "type": "module",
+  "dependencies": {
+    "clipper-lib": "^6.4.2",
+    "electron-updater": "^6.3.9"
+  },
+  "author": {
+    "name": "hadallab"
+  },
+  "build": {
+    "appId": "io.mapmakerpro.editor",
+    "productName": "Mapmaker Pro",
+    "copyright": "Copyright (c) 2026 hadallab",
+    "electronDist": "node_modules/electron/dist",
+    "electronVersion": "33.2.1",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json",
+      "src/**/*",
+      "!src/data/catalog.json",
+      "assets/**/*",
+      "build/icon.*",
+      "node_modules/electron-updater/**/*"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "executableName": "Mapmaker Pro",
+      "legalTrademarks": "hadallab",
+      "signtoolOptions": {
+        "publisherName": [
+          "hadallab"
+        ],
+        "signingHashAlgorithms": [
+          "sha256"
+        ],
+        "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Mapmaker Pro",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "uninstallDisplayName": "Mapmaker Pro",
+      "artifactName": "Mapmaker-Pro-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false
+    },
+    "fileAssociations": [
+      {
+        "ext": "dpm",
+        "name": "Deeeep.io map",
+        "description": "Deeeep.io map",
+        "icon": "build/icon.ico",
+        "role": "Editor"
+      }
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "hadallab",
+      "repo": "mapmaker-pro",
+      "releaseType": "release"
+    }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hadallab/mapmaker-pro.git"
+  },
+  "homepage": "https://github.com/hadallab/mapmaker-pro"
+}
