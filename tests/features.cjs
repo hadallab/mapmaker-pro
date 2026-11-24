@@ -196,13 +196,210 @@ async function main() {
     assert.equal(r4.historyAfterJump, 1);
     assert.equal(r4.historyRestored, r4.historyBefore);
 
+    // Layer & selected-object focus / isolate mode
+    const r5 = await evaluate(async () => {
+      const ed = window.mmp;
+      const { createObject } = await import('./engine/dpm.js');
+      const sq = (x, y, w, h) => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
+      ed.meta.setSymmetry('off');
+      let t1 = null, t2 = null, propObj = null;
+      ed.edit('Add objects for isolate check', () => {
+        t1 = ed.doc.add(createObject('Ter', 'terrains', { points: sq(10, 10, 20, 20), texture: 5 }));
+        t2 = ed.doc.add(createObject('Ter', 'terrains', { points: sq(50, 10, 20, 20), texture: 5 }));
+        propObj = ed.doc.add(createObject('P', 'props', { x: 40, y: 40, pType: 1 }));
+      });
+      ed.select([propObj]);
+      const selBefore = ed.state.selection.size;
+
+      // Switch to Layers tab in bottom dock and wait for DOM
+      const layersTab = [...document.querySelectorAll('#dock-bottom .tab')].find(b => b.textContent.trim() === 'Layers');
+      layersTab?.click();
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      const terrainRow = document.querySelector('#dock-bottom .layer-row[data-layer-id="terrains"]');
+      const viewAllBtn = document.querySelector('#dock-bottom [data-action="view-all"]');
+      const focusStatusEl = document.querySelector('#dock-bottom .layer-focus-status');
+      const isoBtn = () => document.querySelector('#controlbar [data-action="toggle-isolate"]');
+      const viewAllDisabledBefore = !!viewAllBtn?.disabled;
+
+      // 1. Clicking terrains layer row isolates terrains with no selection -> t1=1, t2=1, prop=0.25
+      terrainRow.click();
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const focusedLayer = {
+        isolate: ed.state.isolate,
+        activeLayer: ed.state.activeLayer,
+        alphaTer: ed.layerAlpha('terrains'),
+        alphaProps: ed.layerAlpha('props'),
+        objT1: ed.objectAlpha(t1),
+        objT2: ed.objectAlpha(t2),
+        objProp: ed.objectAlpha(propObj),
+        interactiveProps: ed.layerInteractive('props'),
+        interactiveTer: ed.layerInteractive('terrains'),
+        selAfter: ed.state.selection.size,
+        statusText: focusStatusEl?.textContent || '',
+        viewAllDisabled: !!viewAllBtn?.disabled,
+        isoBtnOn: !!isoBtn()?.classList.contains('on'),
+        rowFocused: !!document.querySelector('#dock-bottom .layer-row[data-layer-id="terrains"]')?.classList.contains('focused')
+      };
+
+      // 2. Selecting t1 while isolated -> ONLY t1 is 1.0; t2 (same layer!) and propObj are 0.25
+      ed.select([t1]);
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const focusedSingle = {
+        objT1: ed.objectAlpha(t1),
+        objT2: ed.objectAlpha(t2),
+        objProp: ed.objectAlpha(propObj),
+        statusText: focusStatusEl?.textContent || '',
+        isoBtnText: isoBtn()?.textContent || ''
+      };
+
+      // 3. View all restores full opacity for everything
+      viewAllBtn.click();
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const restored = {
+        isolate: ed.state.isolate,
+        alphaProps: ed.layerAlpha('props'),
+        alphaFood: ed.layerAlpha('food-spawns'),
+        objT1: ed.objectAlpha(t1),
+        objT2: ed.objectAlpha(t2),
+        objProp: ed.objectAlpha(propObj),
+        interactiveProps: ed.layerInteractive('props'),
+        viewAllDisabled: !!viewAllBtn?.disabled,
+        isoBtnOn: !!isoBtn()?.classList.contains('on')
+      };
+
+      // 4. Selecting t1 in normal mode then toggling Isolate ON keeps t1 selected & dims t2 + propObj
+      ed.select([t1]);
+      isoBtn().click();
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const cbSelectedOn = {
+        isolate: ed.state.isolate,
+        selSize: ed.state.selection.size,
+        hasT1: ed.state.selection.has(t1.uid),
+        activeLayer: ed.state.activeLayer,
+        objT1: ed.objectAlpha(t1),
+        objT2: ed.objectAlpha(t2),
+        objProp: ed.objectAlpha(propObj)
+      };
+      isoBtn().click();
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const cbOff = ed.state.isolate;
+
+      // Also verify isolating a prop selected in normal mode syncs activeLayer to props & keeps selection
+      ed.select([propObj]);
+      ed.setIsolate(true);
+      const propIso = {
+        activeLayer: ed.state.activeLayer,
+        hasProp: ed.state.selection.has(propObj.uid),
+        objProp: ed.objectAlpha(propObj),
+        objT1: ed.objectAlpha(t1),
+        objT2: ed.objectAlpha(t2)
+      };
+      ed.setIsolate(false);
+      ed.select([t1]);
+
+      return { selBefore, viewAllDisabledBefore, focusedLayer, focusedSingle, restored, cbSelectedOn, cbOff, propIso, t1Uid: t1.uid, t2Uid: t2.uid, propUid: propObj.uid };
+    });
+    console.log('layer focus/isolate', JSON.stringify(r5));
+    assert.equal(r5.selBefore, 1);
+    assert.equal(r5.viewAllDisabledBefore, true);
+    assert.equal(r5.focusedLayer.isolate, true);
+    assert.equal(r5.focusedLayer.activeLayer, 'terrains');
+    assert.equal(r5.focusedLayer.alphaTer, 1);
+    assert.equal(r5.focusedLayer.alphaProps, 0.25);
+    assert.equal(r5.focusedLayer.objT1, 1);
+    assert.equal(r5.focusedLayer.objT2, 1);
+    assert.equal(r5.focusedLayer.objProp, 0.25);
+    assert.equal(r5.focusedLayer.interactiveProps, false);
+    assert.equal(r5.focusedLayer.interactiveTer, true);
+    assert.equal(r5.focusedLayer.selAfter, 0, 'off-layer selection cleared when clicking layer row');
+    assert.equal(r5.focusedLayer.statusText, 'Focused: Terrains');
+    assert.equal(r5.focusedLayer.viewAllDisabled, false);
+    assert.equal(r5.focusedLayer.isoBtnOn, true);
+    assert.equal(r5.focusedLayer.rowFocused, true);
+    assert.equal(r5.focusedSingle.objT1, 1);
+    assert.equal(r5.focusedSingle.objT2, 0.25, 'non-selected terrain on same layer dimmed to 0.25');
+    assert.equal(r5.focusedSingle.objProp, 0.25);
+    assert.match(r5.focusedSingle.statusText, /^Focused: Terrain \d+$/);
+    assert.equal(r5.focusedSingle.isoBtnText, 'Focused (1)');
+    assert.equal(r5.restored.isolate, false);
+    assert.equal(r5.restored.alphaProps, 1);
+    assert.equal(r5.restored.alphaFood, 0.4);
+    assert.equal(r5.restored.objT1, 1);
+    assert.equal(r5.restored.objT2, 1);
+    assert.equal(r5.restored.objProp, 1);
+    assert.equal(r5.restored.interactiveProps, true);
+    assert.equal(r5.restored.viewAllDisabled, true);
+    assert.equal(r5.restored.isoBtnOn, false);
+    assert.equal(r5.cbSelectedOn.isolate, true);
+    assert.equal(r5.cbSelectedOn.selSize, 1);
+    assert.equal(r5.cbSelectedOn.hasT1, true);
+    assert.equal(r5.cbSelectedOn.activeLayer, 'terrains');
+    assert.equal(r5.cbSelectedOn.objT1, 1);
+    assert.equal(r5.cbSelectedOn.objT2, 0.25);
+    assert.equal(r5.cbSelectedOn.objProp, 0.25);
+    assert.equal(r5.cbOff, false);
+    assert.equal(r5.propIso.activeLayer, 'props');
+    assert.equal(r5.propIso.hasProp, true);
+    assert.equal(r5.propIso.objProp, 1);
+    assert.equal(r5.propIso.objT1, 0.25);
+    assert.equal(r5.propIso.objT2, 0.25);
+
+    // Ctrl+Shift+I toggles isolate via keyboard shortcut while preserving selected object
+    await key('I', 'KeyI', 2 | 8 /* ctrl | shift */);
+    await new Promise(r => setTimeout(r, 150));
+    const keyIsoOn = await evaluate(({ t1Uid, t2Uid, propUid }) => {
+      const ed = window.mmp;
+      return {
+        isolate: ed.state.isolate,
+        hasT1: ed.state.selection.has(t1Uid),
+        objT1: ed.objectAlpha(ed.doc.get(t1Uid)),
+        objT2: ed.objectAlpha(ed.doc.get(t2Uid)),
+        objProp: ed.objectAlpha(ed.doc.get(propUid))
+      };
+    }, { t1Uid: r5.t1Uid, t2Uid: r5.t2Uid, propUid: r5.propUid });
+    assert.equal(keyIsoOn.isolate, true, 'Ctrl+Shift+I enables isolate');
+    assert.equal(keyIsoOn.hasT1, true, 'Ctrl+Shift+I preserves selection');
+    assert.equal(keyIsoOn.objT1, 1);
+    assert.equal(keyIsoOn.objT2, 0.25);
+    assert.equal(keyIsoOn.objProp, 0.25);
+    await key('I', 'KeyI', 2 | 8);
+    await new Promise(r => setTimeout(r, 150));
+    const keyIsoOff = await evaluate(() => window.mmp.state.isolate);
+    assert.equal(keyIsoOff, false, 'Ctrl+Shift+I disables isolate');
+
+    // Hide-space opacity order warning, 1-click fix, and tester preview parity
+    const r6 = await evaluate(async () => {
+      const ed = window.mmp;
+      const { createObject } = await import('./engine/dpm.js');
+      const { validate } = await import('./engine/validate.js');
+      const ops = await import('./engine/ops.js');
+      const hs = ed.catalog.hideSpaces.find(h => !h.above);
+      ed.meta.setSymmetry('off');
+      let h100, h40;
+      ed.edit('Add overlapping hide spaces', () => {
+        h100 = ed.doc.add(createObject('H', 'hide-spaces', { x: 80, y: 80, hSType: hs.id, opacity: 1 }));
+        h40 = ed.doc.add(createObject('H', 'hide-spaces', { x: 80, y: 80, hSType: hs.id, opacity: 0.4 }));
+      });
+      const beforeIssues = validate(ed.doc, ed.catalog).filter(i => i.code === 'tester-hide-order');
+      ed.edit('Fix hide-space order', () => beforeIssues.forEach(i => ops.applyFix(ed.doc, ed.catalog, i)));
+      const afterIssues = validate(ed.doc, ed.catalog).filter(i => i.code === 'tester-hide-order');
+      const idx40 = ed.doc.layers['hide-spaces'].indexOf(h40);
+      const idx100 = ed.doc.layers['hide-spaces'].indexOf(h100);
+      return { before: beforeIssues.length, after: afterIssues.length, ordered: idx40 < idx100 };
+    });
+    console.log('hide-space opacity order', JSON.stringify(r6));
+    assert.equal(r6.before, 1);
+    assert.equal(r6.after, 0);
+    assert.equal(r6.ordered, true);
+
     if (errors.length) throw new Error('renderer errors: ' + errors.join(' | '));
     console.log('Feature test passed');
   } finally {
     // The map is left with unsaved changes, so closing can stop at the save prompt.
     await Promise.race([app.close().catch(() => {}), new Promise(r => setTimeout(r, 5000))]);
     try { app.process().kill(); } catch { /* already gone */ }
-    fs.rmSync(userData, { recursive: true, force: true });
+    try { fs.rmSync(userData, { recursive: true, force: true }); } catch { /* locked briefly on Windows */ }
   }
 }
 

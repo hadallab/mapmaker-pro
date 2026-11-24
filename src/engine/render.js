@@ -598,23 +598,36 @@ export class Renderer {
         const id = pass.layer.id;
         if (!state.visible.has(id)) continue;
         const alpha = state.layerAlpha(id);
-        if (alpha <= 0) continue;
+        if (alpha <= 0 && !state.objectAlpha) continue;
         const list = doc.layers[id];
         let sorted = list;
         if (id === 'background-terrains' || id === 'hide-spaces') {
-          sorted = sortedLayers?.get(id);
+          const cacheKey = id === 'hide-spaces' && testerPreview ? 'hide-spaces:tester' : id;
+          sorted = sortedLayers?.get(cacheKey);
           if (!sorted) {
-            sorted = list.map((o, i) => ({ o, i })).sort((a, b) => (objectZ(a.o) - objectZ(b.o)) || (a.i - b.i)).map(e => e.o);
-            sortedLayers?.set(id, sorted);
+            if (id === 'hide-spaces' && testerPreview) {
+              const lower = [], high = [];
+              for (const o of list) {
+                const hs = this.catalog.hideSpaceById.get(o.hSType);
+                if (hs?.above && (o.opacity ?? 1) === 1) high.push(o);
+                else lower.push(o);
+              }
+              sorted = [...lower, ...high];
+            } else {
+              sorted = list.map((o, i) => ({ o, i })).sort((a, b) => (objectZ(a.o) - objectZ(b.o)) || (a.i - b.i)).map(e => e.o);
+            }
+            sortedLayers?.set(cacheKey, sorted);
           }
         }
-        ctx.globalAlpha = alpha;
         if (state.outline) {
           ctx.strokeStyle = pass.layer.helper ? 'rgba(60,110,200,0.7)' : 'rgba(20,24,32,0.85)';
           ctx.lineWidth = 1 / this.view.zoom;
         }
         for (const obj of sorted) {
           if (state.hiddenUids?.has(obj.uid)) continue;
+          const objAlpha = state.objectAlpha ? state.objectAlpha(obj, alpha) : alpha;
+          if (objAlpha <= 0) continue;
+          ctx.globalAlpha = objAlpha;
           this.drawObject(obj, state.outline);
         }
       }
@@ -637,18 +650,24 @@ export class Renderer {
     const ctx = this.ctx;
     const xray = this._renderCtx?.xray;
     if (state.visible.has('water')) {
-      ctx.globalAlpha = state.layerAlpha('water') * (xray ? 0.45 : 1);
+      const baseAlpha = state.layerAlpha('water');
       for (const w of doc.layers.water) {
         if (!w.hasBorder || w.points.length < 3 || state.hiddenUids?.has(w.uid)) continue;
+        const objAlpha = (state.objectAlpha ? state.objectAlpha(w, baseAlpha) : baseAlpha) * (xray ? 0.45 : 1);
+        if (objAlpha <= 0) continue;
+        ctx.globalAlpha = objAlpha;
         const s = borderStrips(w.points, true);
         const wColors = this.overrideColors(w);
         this.strips(which === 'top' ? s.top : s.bottom, makeBrighter(wColors?.[0] | 0, 1.75));
       }
     }
     if (which === 'bottom' && state.visible.has('air-pockets')) {
-      ctx.globalAlpha = state.layerAlpha('air-pockets');
+      const baseAlpha = state.layerAlpha('air-pockets');
       for (const a of doc.layers['air-pockets']) {
         if (a.points.length < 3 || state.hiddenUids?.has(a.uid)) continue;
+        const objAlpha = state.objectAlpha ? state.objectAlpha(a, baseAlpha) : baseAlpha;
+        if (objAlpha <= 0) continue;
+        ctx.globalAlpha = objAlpha;
         this.strips(borderStrips(a.points, false).bottom, xray ? 0x67e8f9 : makeBrighter(this.overrideBorderColor(a) | 0, 1.75));
       }
     }

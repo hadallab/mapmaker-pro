@@ -5,6 +5,7 @@
 
 import { LAYER_BY_ID, KIND_BY_TYPE, TEXTURED_TYPES } from './layers.js';
 import { bounds, signedArea, selfIntersections, finite } from './geometry.js';
+import { objectBounds } from './document.js';
 import { untangle } from './shapes.js';
 import { removeSpikes } from './spikes.js';
 import { foodBudget, npcBudget, totalFood, totalNpc, foodBoxCap } from './dpm.js';
@@ -165,6 +166,43 @@ export function validate(doc, catalog) {
   for (const { duplicate } of findDuplicateContours(solidTerrains)) {
     const msg = 'Terrain contour duplicates another solid terrain; duplicate physics edges can snag players';
     add('warning', 'duplicate-contour', msg, duplicate, 'deleteDuplicate');
+  }
+
+  const hides = doc.layers['hide-spaces'] || [];
+  if (hides.length > 1) {
+    const entries = hides.map((obj, index) => ({
+      obj,
+      index,
+      opacity: obj.opacity ?? 1,
+      above: Boolean(catalog.hideSpaceById.get(obj.hSType)?.above),
+      b: objectBounds(obj, catalog)
+    }));
+    const flagged = new Set();
+    for (let i = 1; i < entries.length; i++) {
+      const a = entries[i];
+      if (a.opacity >= 1) continue;
+      for (let j = 0; j < i; j++) {
+        const b = entries[j];
+        if (b.above && b.opacity === 1) continue;
+        if (a.opacity >= b.opacity) continue;
+        if (a.b.x < b.b.x + b.b.width && a.b.x + a.b.width > b.b.x &&
+            a.b.y < b.b.y + b.b.height && a.b.y + a.b.height > b.b.y) {
+          flagged.add(a);
+          break;
+        }
+      }
+    }
+    for (const a of flagged) {
+      const pct = Math.round(a.opacity * 100);
+      const name = catalog.hideSpaceById.get(a.obj.hSType)?.name || `#${a.obj.hSType}`;
+      add(
+        'warning',
+        'tester-hide-order',
+        `Hide space "${name}" (${pct}% opacity) sits later in draw order than an overlapping more-opaque hide space; in-game/tester it renders on top`,
+        a.obj,
+        'sortHideSpacesByOpacity'
+      );
+    }
   }
 
   const fb = foodBudget(doc.worldSize), ft = totalFood(doc);

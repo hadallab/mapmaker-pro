@@ -1624,3 +1624,164 @@ test('validate and applyFix handle off-world shapes, self-intersections, spikes,
   const pos = tr.triggers[0].actions[0].data.pos;
   assert.ok(pos.x < 100 || pos.x > 160 || pos.y < 100 || pos.y > 160, 'teleport target moved out of the rock');
 });
+
+test('validate detects tester-hide-order, sortHideSpacesByOpacity fixes it, and layer filter supports opacity', async () => {
+  const nonAbove = catalog.hideSpaces.find(h => !h.above);
+  const aboveHs = catalog.hideSpaces.find(h => h.above);
+  assert.ok(nonAbove && aboveHs, 'catalog has both above and non-above hide spaces');
+
+  // 1. Overlapping 40% after 100% non-above -> triggers warning
+  const doc = new MapDocument({ width: 40, height: 40 });
+  const tx = doc.begin('seed hide-spaces');
+  const h100 = doc.add(createObject('H', 'hide-spaces', { x: 100, y: 100, hSType: nonAbove.id, opacity: 1 }));
+  const h40 = doc.add(createObject('H', 'hide-spaces', { x: 100, y: 100, hSType: nonAbove.id, opacity: 0.4 }));
+  // Non-overlapping 40% after 100% -> should NOT trigger
+  const h40Far = doc.add(createObject('H', 'hide-spaces', { x: 350, y: 350, hSType: nonAbove.id, opacity: 0.4 }));
+  // Overlapping 40% after 100% above=true -> should NOT trigger
+  doc.add(createObject('H', 'hide-spaces', { x: 250, y: 100, hSType: aboveHs.id, opacity: 1 }));
+  const h40UnderAbove = doc.add(createObject('H', 'hide-spaces', { x: 250, y: 100, hSType: nonAbove.id, opacity: 0.4 }));
+  tx.commit();
+
+  const issues = validate(doc, catalog).filter(i => i.code === 'tester-hide-order');
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].severity, 'warning');
+  assert.equal(issues[0].uid, h40.uid);
+  assert.equal(issues[0].fix, 'sortHideSpacesByOpacity');
+  assert.ok(!issues.some(i => i.uid === h40Far.uid || i.uid === h40UnderAbove.uid));
+
+  // 2. 1-click fix sorts ascending by opacity, clears warning, and undo restores order
+  const orderBefore = doc.layers['hide-spaces'].map(o => o.uid);
+  const txFix = doc.begin('Fix hide-space order');
+  ops.applyFix(doc, catalog, issues[0]);
+  txFix.commit();
+  assert.equal(validate(doc, catalog).filter(i => i.code === 'tester-hide-order').length, 0);
+  assert.ok(doc.layers['hide-spaces'].indexOf(h40) < doc.layers['hide-spaces'].indexOf(h100));
+  doc.history.undo();
+  assert.deepEqual(doc.layers['hide-spaces'].map(o => o.uid), orderBefore);
+
+  // 3. 40% already before 100% -> does NOT trigger
+  const docOk = new MapDocument({ width: 40, height: 40 });
+  const txOk = docOk.begin('ordered');
+  docOk.add(createObject('H', 'hide-spaces', { x: 100, y: 100, hSType: nonAbove.id, opacity: 0.4 }));
+  docOk.add(createObject('H', 'hide-spaces', { x: 100, y: 100, hSType: nonAbove.id, opacity: 1 }));
+  txOk.commit();
+  assert.equal(validate(docOk, catalog).filter(i => i.code === 'tester-hide-order').length, 0);
+
+  // 4. Layer panel opacity filter (0..1 and 1..100%)
+  const { parseLayerQuery, matchesLayerFilter } = await import('../src/ui/panels.js');
+  assert.equal(matchesLayerFilter(h40, parseLayerQuery('opacity<1')), true);
+  assert.equal(matchesLayerFilter(h100, parseLayerQuery('opacity<1')), false);
+  assert.equal(matchesLayerFilter(h40, parseLayerQuery('op=40')), true);
+  assert.equal(matchesLayerFilter(h40, parseLayerQuery('op<=0.4')), true);
+  assert.equal(matchesLayerFilter(h40, parseLayerQuery('op=40%')), true);
+  assert.equal(matchesLayerFilter(h100, parseLayerQuery('op=40')), false);
+});
+
+test('Renderer.renderScene respects per-object objectAlpha across same-layer objects and water borders', async () => {
+  const { Renderer } = await import('../src/engine/render.js');
+  const { LAYERS } = await import('../src/engine/layers.js');
+
+  const alphaStack = [];
+  const ctx = {
+    globalAlpha: 1,
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 1,
+    lineJoin: 'miter',
+    setTransform() {},
+    clearRect() {},
+    fillRect() {},
+    strokeRect() {},
+    beginPath() {},
+    moveTo() {},
+    lineTo() {},
+    closePath() {},
+    rect() {},
+    arc() {},
+    fill() {},
+    stroke() {},
+    translate() {},
+    rotate() {},
+    scale() {},
+    setLineDash() {},
+    drawImage() {},
+    fillText() {},
+    measureText: () => ({ width: 10 }),
+    createPattern: () => null,
+    createLinearGradient: () => ({ addColorStop() {} }),
+    save() { alphaStack.push(this.globalAlpha); },
+    restore() { if (alphaStack.length) this.globalAlpha = alphaStack.pop(); }
+  };
+  const canvas = { width: 200, height: 200, style: {}, getContext: () => ctx };
+  const assets = {
+    texture: () => null,
+    textureFrameWidth: () => 64,
+    spriteFor: () => null,
+    image: () => null
+  };
+
+  const doc = new MapDocument({ width: 20, height: 20 });
+  const tx = doc.begin('seed focus render');
+  const t1 = doc.add(createObject('Ter', 'terrains', { points: rectPts(10, 10, 40, 40), texture: 5 }));
+  const t2 = doc.add(createObject('Ter', 'terrains', { points: rectPts(70, 10, 40, 40), texture: 5 }));
+  const p1 = doc.add(createObject('P', 'props', { x: 140, y: 40, pType: 1 }));
+  const w1 = doc.add(createObject('Wat', 'water', { points: rectPts(0, 80, 200, 120), hasBorder: true }));
+  tx.commit();
+
+  const r = new Renderer(canvas, { catalog, assets });
+  r.width = 200;
+  r.height = 200;
+
+  const drawn = new Map();
+  const borderAlphas = [];
+  const origDraw = r.drawObject.bind(r);
+  r.drawObject = (obj, outline) => {
+    drawn.set(obj.uid, ctx.globalAlpha);
+    return origDraw(obj, outline);
+  };
+  const origStrips = r.strips.bind(r);
+  r.strips = (list, color) => {
+    if (list.length) borderAlphas.push(ctx.globalAlpha);
+    return origStrips(list, color);
+  };
+
+  const visible = new Set(LAYERS.map(l => l.id));
+
+  // 1. Without objectAlpha (e.g. minimap / screenshot), falls back to layerAlpha
+  drawn.clear(); borderAlphas.length = 0;
+  r.renderScene({ doc, visible, layerAlpha: () => 1, outline: false });
+  assert.equal(drawn.get(t1.uid), 1);
+  assert.equal(drawn.get(t2.uid), 1);
+  assert.equal(drawn.get(p1.uid), 1);
+  assert.equal(drawn.get(w1.uid), 1);
+  assert.ok(borderAlphas.length > 0 && borderAlphas.every(a => a === 1));
+
+  // 2. With objectAlpha isolating t1: t1 = 1, t2 (same layer!) = 0.25, p1 = 0.25, w1 & borders = 0.25
+  drawn.clear(); borderAlphas.length = 0;
+  r.renderScene({
+    doc,
+    visible,
+    layerAlpha: id => (id === 'terrains' ? 1 : 0.25),
+    objectAlpha: o => (o.uid === t1.uid ? 1 : 0.25),
+    outline: false
+  });
+  assert.equal(drawn.get(t1.uid), 1);
+  assert.equal(drawn.get(t2.uid), 0.25);
+  assert.equal(drawn.get(p1.uid), 0.25);
+  assert.equal(drawn.get(w1.uid), 0.25);
+  assert.ok(borderAlphas.length > 0 && borderAlphas.every(a => a === 0.25));
+
+  // 3. Selecting w1 keeps water and its border strips at 1 while terrains dim to 0.25
+  drawn.clear(); borderAlphas.length = 0;
+  r.renderScene({
+    doc,
+    visible,
+    layerAlpha: id => (id === 'water' ? 1 : 0.25),
+    objectAlpha: o => (o.uid === w1.uid ? 1 : 0.25),
+    outline: false
+  });
+  assert.equal(drawn.get(w1.uid), 1);
+  assert.equal(drawn.get(t1.uid), 0.25);
+  assert.equal(drawn.get(t2.uid), 0.25);
+  assert.ok(borderAlphas.length > 0 && borderAlphas.every(a => a === 1));
+});

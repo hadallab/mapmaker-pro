@@ -314,6 +314,23 @@ export function moveTeleportTargets(doc, trObj) {
   return moved;
 }
 
+export function sortHideSpacesByOpacity(doc) {
+  const list = doc.layers['hide-spaces'];
+  if (!list || list.length < 2) return false;
+  const sorted = list
+    .map((o, i) => ({ o, i, op: o.opacity ?? 1 }))
+    .sort((a, b) => (a.op - b.op) || (a.i - b.i))
+    .map(e => e.o);
+  let changed = false;
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] !== sorted[i]) { changed = true; break; }
+  }
+  if (!changed) return false;
+  doc.history.touchLayer('hide-spaces');
+  doc.layers['hide-spaces'] = sorted;
+  return true;
+}
+
 export function applyFix(doc, catalog, issue) {
   const o = issue.uid != null ? doc.get(issue.uid) : null;
   switch (issue.fix) {
@@ -348,6 +365,7 @@ export function applyFix(doc, catalog, issue) {
       break;
     case 'capNpcCount': if (o) { doc.touch(o); o.settings.animalCount = 100; } break;
     case 'moveTeleports': if (o) moveTeleportTargets(doc, o); break;
+    case 'sortHideSpacesByOpacity': sortHideSpacesByOpacity(doc); break;
     case 'trimQuotas': {
       const spawns = [...doc.layers['food-spawns'], ...doc.layers['npc-spawns']];
       spawns.forEach(s => doc.touch(s));

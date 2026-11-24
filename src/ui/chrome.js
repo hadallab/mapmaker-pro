@@ -218,9 +218,9 @@ function buildMenubar(ed, commands) {
         C('edit.duplicate'), C('edit.delete'), '-',
         ...model.Object().slice(0, 4), '-',
         ...model.Object().slice(5, 7), '-',
-        C('obj.saveSymbol'), C('file.screenshotSel'), C('view.zoomSel')
+        C('view.isolate'), C('obj.saveSymbol'), C('file.screenshotSel'), C('view.zoomSel')
       ]
-      : [C('edit.paste'), C('edit.pasteInPlace'), C('edit.selectAll'), '-', C('view.fit'), C('view.outline'), C('view.grid')];
+      : [C('edit.paste'), C('edit.pasteInPlace'), C('edit.selectAll'), '-', C('view.fit'), C('view.isolate'), C('view.outline'), C('view.grid')];
     showMenu(items, x, y);
   };
 }
@@ -260,6 +260,17 @@ function buildToolbar(ed) {
 
 function buildControlbar(ed) {
   const bar = document.getElementById('controlbar');
+  let isoBtn = null;
+  const syncIsoBtn = () => {
+    if (!isoBtn) return;
+    const on = !!ed.state.isolate;
+    const n = ed.state.selection.size;
+    isoBtn.classList.toggle('on', on);
+    isoBtn.dataset.tip = on
+      ? 'View all (exit focus mode)'
+      : (n > 0 ? 'Isolate selected object(s) (dim everything else)' : 'Isolate selected object(s) or active layer');
+    isoBtn.lastChild.textContent = on ? (n > 0 ? `Focused (${n})` : 'Focused') : 'Isolate';
+  };
   const render = () => {
     clear(bar);
     const st = ed.state, b = st.brush;
@@ -267,6 +278,15 @@ function buildControlbar(ed) {
     const layer = LAYER_BY_ID[st.activeLayer];
     bar.append(h('span', { class: 'cb-title' }, def.title));
     bar.append(h('span', { class: 'chip', title: 'Active layer' }, h('span', { html: icon('layers') }), layer.title));
+    isoBtn = h('button', {
+      type: 'button',
+      class: 'btn small',
+      'data-action': 'toggle-isolate',
+      'data-key': ed.commands?.get('view.isolate')?.keys || 'Ctrl+Shift+I'
+    }, h('span', { html: icon('isolate') }), h('span', {}, 'Isolate'));
+    syncIsoBtn();
+    isoBtn.addEventListener('click', () => ed.setIsolate(!ed.state.isolate));
+    bar.append(isoBtn);
     const creating = ['pen', 'rect', 'ellipse', 'polygon'].includes(st.tool);
     if (creating) {
       if (['Ter', 'Bg', 'C', 'Air'].includes(layer.type)) {
@@ -357,6 +377,9 @@ function buildControlbar(ed) {
   ed.on('tool', render);
   ed.on('layer', render);
   ed.on('brush', render);
+  ed.on('view-options', render);
+  ed.on('selection', syncIsoBtn);
+  ed.on('keymap', render);
   render();
 }
 

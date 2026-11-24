@@ -144,6 +144,13 @@ export class Editor {
     return 1;
   }
 
+  objectAlpha(o) {
+    if (!o || !this.state.visible.has(o.layerId)) return 0;
+    if (!this.state.isolate) return this.layerAlpha(o.layerId);
+    if (this.state.selection.size > 0) return this.state.selection.has(o.uid) ? 1 : 0.25;
+    return this.layerAlpha(o.layerId);
+  }
+
   layerInteractive(id) {
     if (!this.state.visible.has(id) || this.state.locked.has(id)) return false;
     if (this.state.isolate) return id === this.state.activeLayer;
@@ -158,6 +165,60 @@ export class Editor {
     if (!toolAllowed(this.state.tool, id) || (def.layer && def.layer !== id)) this.setTool('select');
     this.emit('layer');
     this.emit('tool');
+    this.requestRender();
+  }
+
+  _pruneSelectionToLayer(layerId) {
+    let changed = false;
+    for (const uid of [...this.state.selection]) {
+      const o = this.doc.get(uid);
+      if (!o || o.layerId !== layerId) {
+        this.state.selection.delete(uid);
+        this.state.points.delete(uid);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  setIsolate(on) {
+    const next = !!on;
+    if (this.state.isolate === next) return;
+    this.state.isolate = next;
+    if (next && this.state.selection.size > 0) {
+      const layers = new Set(this.selected().map(o => o.layerId));
+      if (layers.size === 1) {
+        const [targetLayer] = layers;
+        if (this.state.activeLayer !== targetLayer) {
+          this.state.activeLayer = targetLayer;
+          const def = TOOL_DEFS[this.state.tool];
+          if (!toolAllowed(this.state.tool, targetLayer) || (def.layer && def.layer !== targetLayer)) this.setTool('select');
+          this.emit('layer');
+          this.emit('tool');
+        }
+      }
+    }
+    this.emit('view-options');
+    this.requestRender();
+  }
+
+  focusLayer(id) {
+    if (!LAYER_BY_ID[id]) return;
+    const layerChanged = this.state.activeLayer !== id;
+    const isoChanged = !this.state.isolate;
+    if (layerChanged) {
+      this.state.activeLayer = id;
+      const def = TOOL_DEFS[this.state.tool];
+      if (!toolAllowed(this.state.tool, id) || (def.layer && def.layer !== id)) this.setTool('select');
+    }
+    this.state.isolate = true;
+    const selChanged = this._pruneSelectionToLayer(id);
+    if (layerChanged) {
+      this.emit('layer');
+      this.emit('tool');
+    }
+    if (selChanged) this.emit('selection');
+    if (isoChanged || layerChanged) this.emit('view-options');
     this.requestRender();
   }
 
@@ -589,6 +650,7 @@ export class Editor {
       doc: this.doc,
       visible: state.visible,
       layerAlpha: id => this.layerAlpha(id),
+      objectAlpha: o => this.objectAlpha(o),
       outline: state.outline,
       testerPreview: !!(state.testerPreview || state.view?.testerPreview),
       hiddenUids: hidden,

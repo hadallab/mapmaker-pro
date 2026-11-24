@@ -293,7 +293,13 @@ export function createCommands(ed) {
     { id: 'view.zoomSel', label: 'Zoom to selection', keys: 'Shift+2', enabled: has, run: () => ed.zoomSelection() },
     { id: 'view.actual', label: 'Zoom 100%', keys: 'Ctrl+1', run: () => ed.setZoom(1) },
     { id: 'view.outline', label: 'Outline view', keys: 'Ctrl+Y', checked: () => ed.state.outline, run: view('outline') },
-    { id: 'view.isolate', label: 'Isolate active layer', keys: 'Ctrl+Shift+I', checked: () => ed.state.isolate, run: view('isolate') },
+    {
+      id: 'view.isolate',
+      label: () => ed.state.isolate ? 'View all (exit focus)' : (ed.state.selection.size > 0 ? 'Isolate selection' : 'Isolate active layer'),
+      keys: 'Ctrl+Shift+I',
+      checked: () => ed.state.isolate,
+      run: () => ed.setIsolate(!ed.state.isolate)
+    },
     {
       id: 'view.testerPreview',
       label: 'Preview as Map Tester',

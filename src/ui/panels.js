@@ -1052,13 +1052,13 @@ export function parseLayerQuery(query) {
   const opsList = [];
   const terms = [];
   for (const tok of normalized.split(/\s+/)) {
-    const m = tok.match(/^(area|pts|points)(<=|>=|<|>|=)(-?\d+(?:\.\d+)?)$/i);
+    const m = tok.match(/^(area|pts|points|opacity|op)(<=|>=|<|>|=)(-?\d+(?:\.\d+)?)(%?)$/i);
     if (m) {
-      opsList.push({
-        field: m[1].toLowerCase() === 'area' ? 'area' : 'pts',
-        op: m[2],
-        value: Number(m[3])
-      });
+      const rawField = m[1].toLowerCase();
+      const field = rawField === 'area' ? 'area' : (rawField === 'opacity' || rawField === 'op') ? 'opacity' : 'pts';
+      let value = Number(m[3]);
+      if (field === 'opacity' && (m[4] === '%' || value > 1)) value = value / 100;
+      opsList.push({ field, op: m[2], value });
     } else {
       terms.push(tok.toLowerCase());
     }
@@ -1088,6 +1088,11 @@ function objectAreaUnits(o) {
 function objectPointCount(o) {
   const k = KIND_BY_TYPE[o.type];
   if (k === 'poly' || k === 'rect') return (o.points || []).length;
+  return null;
+}
+
+function objectOpacityValue(o) {
+  if (o.type === 'Bg' || o.type === 'H') return o.opacity ?? 1;
   return null;
 }
 
@@ -1148,7 +1153,11 @@ export function matchesLayerFilter(o, queryOrParsed, ctx = {}) {
   const parsed = typeof queryOrParsed === 'string' ? parseLayerQuery(queryOrParsed) : queryOrParsed;
   if (!parsed || parsed.empty) return true;
   for (const cond of parsed.ops) {
-    const actual = cond.field === 'area' ? objectAreaUnits(o) : objectPointCount(o);
+    const actual = cond.field === 'area'
+      ? objectAreaUnits(o)
+      : cond.field === 'opacity'
+        ? objectOpacityValue(o)
+        : objectPointCount(o);
     if (!compareOp(actual, cond.op, cond.value)) return false;
   }
   if (parsed.terms.length) {
@@ -1164,7 +1173,7 @@ function layersPanel(ed, el) {
   let query = '';
   let scheduled = 0;
 
-  const searchInput = h('input', { placeholder: 'Filter: name, texture, #hex, area<0.1, pts>40' });
+  const searchInput = h('input', { placeholder: 'Filter: name, texture, #hex, area<0.1, pts>40, op<1' });
   const clearBtn = h('button', {
     type: 'button',
     class: 'btn icon flat small',
@@ -1194,6 +1203,18 @@ function layersPanel(ed, el) {
     searchInput.focus();
   });
 
+  const focusStatus = h('span', { class: 'layer-focus-status' }, 'All layers');
+  const viewAllBtn = h('button', {
+    type: 'button',
+    class: 'btn small layer-view-all',
+    'data-action': 'view-all',
+    'data-tip': 'Show all layers and objects at full opacity',
+    'data-key': 'Ctrl+Shift+I',
+    disabled: !ed.state.isolate
+  }, 'View all');
+  viewAllBtn.addEventListener('click', () => ed.setIsolate(false));
+  const focusBar = h('div', { class: 'layer-focus-bar' }, focusStatus, viewAllBtn);
+
   const toolbar = h('div', {
     style: {
       position: 'sticky', top: '0', zIndex: '2', background: 'var(--bg2)',
@@ -1202,7 +1223,8 @@ function layersPanel(ed, el) {
   },
     h('div', { style: { display: 'flex', gap: '4px', alignItems: 'center' } },
       h('div', { class: 'search' }, h('span', { html: icon('search') }), searchInput, clearBtn)),
-    createLayerScrubber(ed));
+    createLayerScrubber(ed),
+    focusBar);
   const listEl = h('div');
   el.append(toolbar, listEl);
 
@@ -1221,6 +1243,27 @@ function layersPanel(ed, el) {
     scheduled = 0;
     const scroll = el.scrollTop;
     clear(listEl);
+    const isolated = !!ed.state.isolate;
+    const sel = isolated ? ed.selected() : [];
+    const activeTitle = LAYER_BY_ID[ed.state.activeLayer]?.title || '';
+    let focusLabel = 'All layers';
+    if (isolated) {
+      if (sel.length === 1) {
+        const o = sel[0];
+        const name = ed.meta.name(o) || `${SINGULAR[o.layerId] || o.type} ${ed.doc.layers[o.layerId].indexOf(o) + 1}`;
+        focusLabel = `Focused: ${name}`;
+      } else if (sel.length > 1) {
+        focusLabel = `Focused: ${sel.length} selected`;
+      } else {
+        focusLabel = `Focused: ${activeTitle}`;
+      }
+    }
+    focusBar.classList.toggle('active', isolated);
+    focusStatus.textContent = focusLabel;
+    focusStatus.title = focusLabel;
+    viewAllBtn.disabled = !isolated;
+    viewAllBtn.classList.toggle('primary', isolated);
+
     const frag = document.createDocumentFragment();
     const parsed = parseLayerQuery(query);
     const filtering = !parsed.empty;
@@ -1276,11 +1319,15 @@ function layersPanel(ed, el) {
         ed.requestRender(); render();
       });
       const countText = filtering ? `${matched.length}/${list.length}` : String(list.length);
-      const r = h('div', { class: 'layer-row' + (ed.state.activeLayer === layer.id ? ' active' : ''), title: layer.description || '' },
+      const isActive = ed.state.activeLayer === layer.id;
+      const rowCls = 'layer-row'
+        + (isActive ? ' active' : '')
+        + (isolated ? (isActive ? ' focused' : ' dimmed') : '');
+      const r = h('div', { class: rowCls, 'data-layer-id': layer.id, title: layer.description || '' },
         twist, h('span', { class: 'sw', style: { background: LAYER_SWATCH[layer.id] } }),
         h('span', { class: 'lname' }, layer.title, layer.helper ? h('small', {}, 'helper') : null),
         h('span', { class: 'count' }, countText), eye, lock);
-      r.addEventListener('click', () => ed.setActiveLayer(layer.id));
+      r.addEventListener('click', () => ed.focusLayer(layer.id));
       r.addEventListener('dblclick', () => ed.select(filtering ? matched.map(m => m.o) : list));
       frag.append(r);
 
@@ -1315,6 +1362,7 @@ function layersPanel(ed, el) {
   ed.on('selection', schedule);
   ed.on('layer', schedule);
   ed.on('meta', schedule);
+  ed.on('view-options', schedule);
   render();
 }
 
@@ -1329,7 +1377,11 @@ function objectMeta(ed, o) {
     case 'Food': return 'x' + o.settings.count;
     case 'NPC': return 'x' + o.settings.animalCount;
     case 'Tr': return `${o.triggers.length} trigger${o.triggers.length === 1 ? '' : 's'}`;
-    case 'H': return ed.catalog.hideSpaceById.get(o.hSType)?.name || '#' + o.hSType;
+    case 'H': {
+      const name = ed.catalog.hideSpaceById.get(o.hSType)?.name || '#' + o.hSType;
+      const op = o.opacity ?? 1;
+      return op < 1 ? `${name}  ${Math.round(op * 100)}%` : name;
+    }
     case 'A': return ed.catalog.animalByLevel.get(o.fLevel)?.name || '#' + o.fLevel;
     case 'P': return ed.catalog.propById.get(o.pType)?.name || '#' + o.pType;
   }
@@ -1350,6 +1402,7 @@ const GROUP_TEXT = {
   colors: 'gradients with fewer than two colours',
   'tester-colors': 'gradients with more than two stops (the map tester draws two)',
   'tester-thin-sky': 'two-colour Sky shapes under 1.5 px tall (black in the map tester)',
+  'tester-hide-order': 'semi-transparent hide spaces that draw above opaque ones in-game/tester',
   opacity: 'background terrains without opacity',
   'hide-space': 'hide spaces missing from the catalog',
   prop: 'props missing from the catalog',
@@ -1429,6 +1482,8 @@ function checksPanel(ed, el, tabButton) {
                 ? (fixable.length > 1 ? `Delete ${fixable.length}` : 'Delete')
               : kind === 'moveTeleports'
                 ? (fixable.length > 1 ? `Move ${fixable.length} targets` : 'Move target')
+              : kind === 'sortHideSpacesByOpacity'
+                ? 'Sort hide spaces by opacity'
               : (fixable.length > 1 ? `Fix ${fixable.length}` : 'Fix');
         const fix = h('button', { class: 'btn small' }, fixLabel);
         fix.addEventListener('click', () => ed.edit('Fix ' + first.code, () => fixable.forEach(i => ops.applyFix(ed.doc, ed.catalog, i))));
