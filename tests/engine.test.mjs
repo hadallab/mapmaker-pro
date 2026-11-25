@@ -1785,3 +1785,78 @@ test('Renderer.renderScene respects per-object objectAlpha across same-layer obj
   assert.equal(drawn.get(t2.uid), 0.25);
   assert.ok(borderAlphas.length > 0 && borderAlphas.every(a => a === 1));
 });
+
+test('Cu current direction matches official Mapmaker (0=right, 90=down, 180=left, -90/270=up)', async () => {
+  const { Renderer, currentArrowRotation, currentDirectionVector } = await import('../src/engine/render.js');
+
+  // 1. Direction unit vectors in world/screen space (+x right, +y down) and up-pointing arrow.png rotation
+  const cases = [
+    { angle: 0, dx: 1, dy: 0, arrowDeg: 90 },
+    { angle: 90, dx: 0, dy: 1, arrowDeg: 180 },
+    { angle: 180, dx: -1, dy: 0, arrowDeg: 270 },
+    { angle: -90, dx: 0, dy: -1, arrowDeg: 0 },
+    { angle: 270, dx: 0, dy: -1, arrowDeg: 360 }
+  ];
+  for (const c of cases) {
+    const v = currentDirectionVector(c.angle);
+    assert.ok(Math.abs(v.x - c.dx) < 1e-9, `angle ${c.angle} dx`);
+    assert.ok(Math.abs(v.y - c.dy) < 1e-9, `angle ${c.angle} dy`);
+    assert.equal(currentArrowRotation(c.angle), c.arrowDeg, `angle ${c.angle} arrow rotation`);
+  }
+
+  // 2. Renderer draws ui/arrow.png rotated by (angle + 90) deg and centered vertically on the pivot
+  const rotations = [];
+  const drawImages = [];
+  const ctx = {
+    globalAlpha: 1,
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 1,
+    beginPath() {}, moveTo() {}, lineTo() {}, closePath() {},
+    fill() {}, stroke() {}, save() {}, restore() {}, translate() {},
+    rotate(rad) { rotations.push(rad); },
+    drawImage(_img, x, y, w, h) { drawImages.push({ x, y, w, h }); }
+  };
+  const canvas = { width: 200, height: 200, style: {}, getContext: () => ctx };
+  const fakeArrow = { width: 50, height: 100 };
+  const assets = { image: rel => (rel === 'ui/arrow.png' ? fakeArrow : null) };
+  const r = new Renderer(canvas, { catalog, assets });
+  r.view = { cx: 50, cy: 50, zoom: 1 };
+
+  for (const c of cases) {
+    rotations.length = 0;
+    drawImages.length = 0;
+    const cu = createObject('Cu', 'currents', { points: rectPts(0, 0, 100, 100), settings: { angle: c.angle, strength: 25 } });
+    r.drawPolygonObject(cu, false);
+    assert.equal(rotations.length, 1);
+    assert.ok(Math.abs(rotations[0] - c.arrowDeg * Math.PI / 180) < 1e-9, `canvas rotate for ${c.angle}`);
+    assert.equal(drawImages.length, 1);
+    assert.ok(Math.abs(drawImages[0].x + drawImages[0].w / 2) < 1e-9, 'arrow horizontally centered');
+    assert.ok(Math.abs(drawImages[0].y + drawImages[0].h / 2) < 1e-9, 'arrow vertically centered');
+  }
+
+  // 3. ops.rotate and ops.flip keep Cu.settings.angle aligned with transformed geometry
+  const doc = new MapDocument({ width: 20, height: 20 });
+  const tx0 = doc.begin('seed cu');
+  const cu = doc.add(createObject('Cu', 'currents', { points: rectPts(20, 20, 40, 40), settings: { angle: 0, strength: 50 } }));
+  tx0.commit();
+  const pivot = { x: 40, y: 40 };
+
+  let tx = doc.begin('rot90'); ops.rotate(doc, [cu], 90, pivot); tx.commit();
+  assert.equal(cu.settings.angle, 90);
+  tx = doc.begin('rot90 again'); ops.rotate(doc, [cu], 90, pivot); tx.commit();
+  assert.equal(cu.settings.angle, 180);
+  tx = doc.begin('rot90 third'); ops.rotate(doc, [cu], 90, pivot); tx.commit();
+  assert.equal(cu.settings.angle, -90);
+  tx = doc.begin('flipV'); ops.flip(doc, [cu], 'v', pivot); tx.commit();
+  assert.equal(cu.settings.angle, 90);
+  tx = doc.begin('set45'); doc.touch(cu); cu.settings.angle = 45; tx.commit();
+  tx = doc.begin('flipH'); ops.flip(doc, [cu], 'h', pivot); tx.commit();
+  assert.equal(cu.settings.angle, 135);
+  tx = doc.begin('flipV2'); ops.flip(doc, [cu], 'v', pivot); tx.commit();
+  assert.equal(cu.settings.angle, -135);
+
+  // 4. DPM export preserves Cu settings unchanged
+  const exported = exportMap(doc).screenObjects.find(o => o.type === 'Cu');
+  assert.deepEqual(exported.settings, { angle: -135, strength: 50 });
+});

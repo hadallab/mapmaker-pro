@@ -217,7 +217,7 @@ input[type="range"] { flex: 1; accent-color: var(--accent); height: 4px; }
 .trigger-card .row:last-child { margin-bottom: 0; }
 
 .dial { position: relative; width: 52px; height: 52px; border-radius: 50%; background: var(--bg3); border: 1px solid var(--line2); flex: none; cursor: grab; }
-.dial .needle { position: absolute; left: 50%; top: 50%; width: 22px; height: 2px; background: var(--accent); transform-origin: 0 50%; border-radius: 1px; }
+.dial .needle { position: absolute; left: 50%; top: 50%; margin-top: -1px; width: 22px; height: 2px; background: var(--accent); transform-origin: 0 50%; border-radius: 1px; }
 .dial .hub { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: var(--text); }
 
 /* ---- layers ---- */

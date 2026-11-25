@@ -52,8 +52,10 @@ export function rotate(doc, objs, degrees, pivot) {
     const kind = KIND_BY_TYPE[o.type];
     if (kind === 'rect') { skipped.push(o); continue; }
     doc.touch(o);
-    if (kind === 'poly') o.points = o.points.map(p => rotatePoint(p, pivot.x, pivot.y, r));
-    else {
+    if (kind === 'poly') {
+      o.points = o.points.map(p => rotatePoint(p, pivot.x, pivot.y, r));
+      if (o.type === 'Cu' && o.settings) o.settings.angle = normalizeAngle((o.settings.angle || 0) + degrees);
+    } else {
       const p = rotatePoint({ x: o.x, y: o.y }, pivot.x, pivot.y, r);
       o.x = p.x; o.y = p.y;
       o.rotation = normalizeAngle((o.rotation || 0) + degrees);
@@ -66,7 +68,7 @@ export function normalizeAngle(a) {
   let v = a % 360;
   if (v > 180) v -= 360;
   if (v <= -180) v += 360;
-  return v;
+  return v || 0;
 }
 
 export function scale(doc, objs, sx, sy, pivot) {
@@ -101,6 +103,10 @@ export function flip(doc, objs, axis, pivot) {
     const fx = axis === 'h' ? -1 : 1, fy = axis === 'v' ? -1 : 1;
     if (kind === 'poly') {
       o.points = o.points.map(p => ({ x: pivot.x + (p.x - pivot.x) * fx, y: pivot.y + (p.y - pivot.y) * fy })).reverse();
+      if (o.type === 'Cu' && o.settings) {
+        const a = o.settings.angle || 0;
+        o.settings.angle = normalizeAngle(axis === 'h' ? 180 - a : -a);
+      }
     } else if (kind === 'rect') {
       if (axis === 'h') o.position.x = 2 * pivot.x - o.position.x - o.size.width;
       else o.position.y = 2 * pivot.y - o.position.y - o.size.height;

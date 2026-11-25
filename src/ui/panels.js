@@ -584,13 +584,14 @@ function terrainFoodSection(ed, sel, apply) {
 
 function currentSection(sel, apply) {
   const s = sel[0].settings;
+  const initAngle = Number(s.angle) || 0;
   const dial = h('div', { class: 'dial', 'data-tip': 'Drag to set the angle (Shift: 15 deg steps)' },
-    h('div', { class: 'needle', style: { transform: `rotate(${s.angle}deg)` } }),
+    h('div', { class: 'needle', style: { transform: `rotate(${initAngle}deg)` } }),
     h('div', { class: 'hub' }));
   dial.addEventListener('pointerdown', e => {
     dial.setPointerCapture(e.pointerId);
     const r = dial.getBoundingClientRect();
-    let last = s.angle;
+    let last = initAngle;
     const move = ev => {
       let a = Math.atan2(ev.clientY - (r.top + r.height / 2), ev.clientX - (r.left + r.width / 2)) * 180 / Math.PI;
       if (ev.shiftKey) a = Math.round(a / 15) * 15;

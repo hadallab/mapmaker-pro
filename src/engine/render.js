@@ -63,6 +63,18 @@ export function borderStrips(points, forWater) {
   return { top, bottom };
 }
 
+// Official Mapmaker (app.a86e76d3.js Current.updateIcon) stores Cu.settings.angle in
+// screen polar degrees (0 = right/+x, 90 = down/+y, -90 = up/-y, +-180 = left/-x) and
+// rotates the up-pointing assets/ui/arrow.png sprite by `angle + 90` degrees clockwise.
+export function currentArrowRotation(angle) {
+  return (Number(angle) || 0) + 90;
+}
+
+export function currentDirectionVector(angle) {
+  const rad = (Number(angle) || 0) * Math.PI / 180;
+  return { x: Math.cos(rad), y: Math.sin(rad) };
+}
+
 function objectZ(obj) {
   // engine: Bg and H use opacity as zOrder inside their sortable layer group
   if (obj.type === 'Bg') return obj.opacity ?? 0;
@@ -332,7 +344,7 @@ export class Renderer {
         const s = HELPER_STYLE.Cu;
         ctx.fillStyle = s.fill; ctx.fill();
         ctx.strokeStyle = s.stroke; ctx.lineWidth = 1 / this.view.zoom; ctx.stroke();
-        this.drawIcon('ui/arrow.png', obj.points, obj.settings?.angle || 0);
+        this.drawIcon('ui/arrow.png', obj.points, currentArrowRotation(obj.settings?.angle));
         break;
       }
     }
@@ -343,12 +355,13 @@ export class Renderer {
     if (!img) return;
     const b = bounds(points);
     const size = Math.min(Math.max(Math.min(b.width, b.height) * 0.5, 4), 40 / this.view.zoom);
+    const h = size * img.height / img.width;
     const ctx = this.ctx;
     ctx.save();
     ctx.translate(b.x + b.width / 2, b.y + b.height / 2);
     ctx.rotate(angle * Math.PI / 180);
     ctx.globalAlpha *= 0.85;
-    ctx.drawImage(img, -size / 2, -size / 2, size, size * img.height / img.width);
+    ctx.drawImage(img, -size / 2, -h / 2, size, h);
     ctx.restore();
   }
 
